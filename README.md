@@ -1,4 +1,9 @@
+!python synthentic_gen.py --file test_pargraph.csv --output dataset/devrev_test
+
+
 ```.
+
+
 ├── README.md
 ├── args.py
 ├── augmentation.py

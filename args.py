@@ -26,3 +26,21 @@ def get_train_test_args():
     parser.add_argument('--eval-every', type=int, default=1000)
     args = parser.parse_args()
     return args
+
+def get_reader_retriever_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--reader_model", type=str, default="sentence-transformers/all-MiniLM-L12-v2")
+    # change embedding size in QApipeline.py according to retriever model
+    parser.add_argument("--retriever_model", type=str, default="vaibhav9/distil-roberta-qa")
+    parser.add_argument('--embedding_size', type=int, default=386)
+    parser.add_argument("--input_dir", type=str, default="datasets/train_data.csv")
+    parser.add_argument("--output_dir", type=str, default="oodomain_train/")
+    parser.add_argument("--use_cuda", action="store_false")
+    parser.add_argument('--stride', type=int, default=128)
+    parser.add_argument('--n_best_size', type=int, default=20)
+    parser.add_argument('--n_clusters', type=int, default=1)
+    parser.add_argument('--n_probe', type=int, default=1)
+    parser.add_argument('--top_k', type=int, default=5)
+
+    args = parser.parse_args()
+    return args

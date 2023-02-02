@@ -1,11 +1,9 @@
-#add your code here
 import collections
 import json
 import pandas as pd
 import argparse
 import re
 import string
-from ast import literal_eval
 import gzip
 import os
 import torch
@@ -19,17 +17,20 @@ from transformers import AutoTokenizer
 from optimum.onnxruntime.configuration import AutoQuantizationConfig
 from optimum.onnxruntime import ORTQuantizer
 from sentence_transformers import SentenceTransformer
+from args import get_reader_retriever_args
+
+
 
 class Retriever:
   def __init__(self, 
                 retriever_model="sentence-transformers/all-MiniLM-L12-v2", 
-                embedding_size = 384,
+                embedding_size = 386,
+                use_cuda = False,
                 retriever_type = "single",
-                index = faiss,
-                use_cuda = False):
+                indexing = faiss):
         
     self.model = SentenceTransformer(retriever_model)
-    self.index = index
+    self.index = indexing
     self.embedding_size = embedding_size
     self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
     self.retriever_type = retriever_type
@@ -39,8 +40,11 @@ class Retriever:
     passages = []
     for row in corpus_json :
       passages.append(row['paragraph'])
-
+    
     # Setup Faiss
+    length_passages = len(passages)
+    n_clusters = min(length_passages,int(8*length_passages**0.5))
+    n_probe = min(3,length_passages)
 
     #We use Inner Product (dot-product) as Index. We will normalize our vectors to unit length, then is Inner Product equal to cosine similarity
     quantizer = self.index.IndexFlatIP(self.embedding_size)
@@ -84,17 +88,17 @@ class Reader:
     self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
     self.pipe = None
 
-  def __call__(self, file_name ="model_quantized.onnx", save_directory= "tmp/onnx/", truncation = "only_second", stride = 128, n_best_size=20):
+  def __call__(self, stride = 128, n_best_size=20, file_name = "model_quantized.onnx", save_directory= "tmp/onnx/"):
     
     self.quantize_model()
 
-    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name="model_quantized.onnx")
+    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name)
     tokenizer = AutoTokenizer.from_pretrained(save_directory)
 
     self.pipe = pipeline("question-answering",
                     model=reader_model,
                     tokenizer=tokenizer,
-                    truncation= truncation,
+                    truncation= "only_second",
                     stride=stride,
                     padding="max_length",
                     n_best_size = n_best_size)
@@ -148,11 +152,9 @@ class Reader:
     outputs = sorted(outputs, key=lambda x: -x['score'])
 
     if not outputs:
-      pred_out.append(ans)
+      return ans
     else:
-      pred_out.append(outputs[0]["answer"])
-
-    return pred_out
+      return outputs[0]["answer"]
   
   # add loading of meta model
 
@@ -161,31 +163,33 @@ class Reader:
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--reader_model", type=str, default="vaibhav9/distil-roberta-qa")
-    parser.add_argument("--retriever_model", type=str, default="vaibhav9/distil-roberta-qa")
-    parser.add_argument("--input_dir", type=str, default="datasets/train_data.csv")
-    parser.add_argument("--output_pred", type=str, default="oodomain_train/")
-    parser.add_argument("--use_cuda", action="store_false")
-    args = parser.parse_args()
+    args = get_reader_retriever_args()
     
-    df = pd.read_csv(args.input_dir)
-    retriever = Retriever()
-    index = retriever(file_name)
-    # qg_model = AutoModelForSeq2SeqLM.from_pretrained("valhalla/t5-small-qg-hl")
-    # qg_tokenizer = AutoTokenizer.from_pretrained("valhalla/t5-small-qg-hl")
-    # qg_pipe = CustomPipeline(model = qg_model, 
-    #                          tokenizer=qg_tokenizer, 
-    #                          use_cuda=args.use_cuda,
-    #                         qa_checkpoint = args.qa_model)
-    
-    # all_themes = df["theme"].unique()
-    # theme_dict = {}
-    # for theme in all_themes:
-    #     theme_dict[theme] = qg_pipe.get_theme_dataset(df,theme).drop_duplicates()
-    # out = pd.concat(list(theme_dict.values()))
-    # qg_pipe.save_to_json(out, args.output_dir)
-    #out.to_csv(args.output_dir + "synthetic_data.csv")
+    dataset = pd.read_csv(args.input_dir)
+
+    corpus_json = json.loads(dataset.to_json(orient="records"))
+    passages = []
+    for row in corpus_json :
+      passages.append(row['Paragraph'])
+
+    retriever = Retriever(args.retriever_model,args.embedding_size,args.use_cuda)
+    index = retriever(args.input_dir,args.n_clusters,args.n_probe)
+
+    reader = Reader(args.reader_model, args.use_cuda)
+    pipe = reader(args.stride, args.n_best_size)
+
+    predictions = []
+
+    for row in dataset:
+      question = row["question"]
+      question_embeddings = retriever.question_encode(question)
+      distances, corpus_ids = retriever.search(question_embeddings, args.top_k)
+      prediction = reader.read(question, passages, corpus_ids, distances)
+      predictions.append(prediction)
+
+    pred_df = pd.DataFrame.from_records(predictions)
+    # Write prediction to a CSV file. Teams are required to submit this csv file.
+    pred_df.to_csv(args.output_dir + 'output_prediction.csv', index=False)
     
 
 if __name__ == "__main__":

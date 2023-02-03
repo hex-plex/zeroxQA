@@ -82,11 +82,21 @@ class Retriever:
     return distances, corpus_ids
 
 class Reader:
-  def __init__(self, 
-                reader_model="mrm8488/bert-mini-5-finetuned-squadv2", 
+  def __init__(self,
+                reader_model="mrm8488/bert-mini-5-finetuned-squadv2",
+                theme = None,
+                theme_dict = None,
                 use_cuda = False,):
-        
-    self.model_name = reader_model
+    self.theme = theme
+    if self.theme is None:
+      self.model_name = reader_model
+    else:
+      file = open(theme_dict, 'rb')
+      # dump information to that file
+      data = pickle.load(file)
+      # close the file
+      file.close()
+      self.model_name = data[theme]
     self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
     self.pipe = None
 
@@ -94,7 +104,7 @@ class Reader:
     
     self.quantize_model()
 
-    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name)
+    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name, from_transformers=True) #from from_transformers=True
     tokenizer = AutoTokenizer.from_pretrained(save_directory)
 
     self.pipe = pipeline("question-answering",

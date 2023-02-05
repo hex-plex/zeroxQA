@@ -12,5 +12,5 @@ setuptools.setup(
 	long_description=long_description,
 	url="https://github.com/hex-plex/zeroxQA",
 	packages=setuptools.find_packages(),
-	install_requires=["sentence-transformer", "faiss-cpu", "transformers", "transformers[onnx]", "optimum", "Pillow==9.0.0"]
+	install_requires=["sentence-transformers", "faiss-cpu", "transformers", "transformers[onnx]", "optimum", "Pillow==9.0.0"]
 )

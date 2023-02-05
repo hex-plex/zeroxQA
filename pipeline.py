@@ -168,6 +168,9 @@ class Reader:
             } 
           })
 
+        if output["score"] > 0.7 and output["answer"]:
+          break
+
     outputs = sorted(outputs, key=lambda x: -x['score'])
 
     if not outputs:

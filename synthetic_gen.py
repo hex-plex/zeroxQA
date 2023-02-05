@@ -22,7 +22,7 @@ class CustomPipeline:
         self.model = model
         self.tokenizer = tokenizer
         self.qg_format = qg_format
-        self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
+        self.device = "cuda" if (use_cuda and torch.cuda.is_available()) else "cpu"
         self.model.to(self.device)
         self.ner = spacy.load("en_core_web_sm")
         self.qa_pipe = transformers.pipeline("question-answering",
@@ -39,7 +39,6 @@ class CustomPipeline:
         
         if len(flat_answers) == 0:
           return []
-
         if self.qg_format == "prepend":
             qg_examples = self._prepare_inputs_for_qg_from_answers_prepend(inputs, answers)
         else:
@@ -52,7 +51,6 @@ class CustomPipeline:
     
     def _generate_questions(self, inputs):
         inputs = self._tokenize(inputs, padding=True, truncation=True)
-        
         outs = self.model.generate(
             input_ids=inputs['input_ids'].to(self.device), 
             attention_mask=inputs['attention_mask'].to(self.device), 
@@ -165,7 +163,7 @@ class CustomPipeline:
               pass
             else:
               final_qg.append({"question":qg[idx]["question"], 
-                               "answer":self.get_final_ans(qg[idx]["question"], output["answer"]), 
+                               "answer":self.get_final_ans(qg[idx]["answer"], output["answer"]), 
                                "start_char":output["start"]})
         return final_qg
     
@@ -178,8 +176,8 @@ class CustomPipeline:
         unans_questions = []
         pop = list(range(n))
         pop.remove(i)
-        m = len(theme_data[i]["qas"])
-        samples = min(n, random.sample(pop, m))
+        m = min(n-1, len(theme_data[i]["qas"]))
+        samples = random.sample(pop, m)
         for sample in samples:
           if (len(theme_data[sample]["qas"]) > 0):
             q = random.choice(theme_data[sample]["qas"])["question"]
@@ -245,14 +243,29 @@ class CustomPipeline:
       out = pd.DataFrame(rows)
       out.columns = ["Theme", "Paragraph", "Question", "Answer_possible", "Answer_text", "Answer_start"]
       return out
+    
+    
+    @staticmethod
+    def find_all(a_str, sub):
+      start = 0
+      while True:
+          start = a_str.find(sub, start)
+          if start == -1: return
+          yield start
+          start += len(sub) # use start += 1 to find overlapping matches
 
-
-    def get_theme_dataset(self, df, theme):
-      all_para = df[df["theme"] == theme]["paragraph"].unique()
+    def get_theme_dataset(self, para_df, qa_df, theme):
+      all_para = para_df[para_df["theme"] == theme]["paragraph"].unique()
 
       theme_data = []
       for cnt, para in enumerate(tqdm(all_para)):
         qas = self.generate_qa(para)
+        t = qa_df[qa_df["paragraph"] == para]
+        for idx in t.index:
+          if len(list(self.find_all(para, t.loc[idx]["answer"]))) == 1:
+            qas.append({"question": t.loc[idx]["question"],
+                        "answer": t.loc[idx]["answer"],
+                        "start_char": para.find(t.loc[idx]["answer"])})
         theme_data.append({"para":para, "qas":qas})
         
       self.add_unans_que(theme_data)
@@ -309,7 +322,23 @@ class CustomPipeline:
               json.dump(js, f)
 
 
-
+import threading
+class Worker(threading.Thread):
+    def __init__(self,Id,  theme, qg_pipe, para_df, qa_df, theme_dataset, output_dir):
+        threading.Thread.__init__(self)
+        self.threadID = Id
+        self.theme = theme
+        self.qg_pipe = qg_pipe
+        self.para_df = para_df
+        self.qa_df = qa_df
+        self.theme_dataset = theme_dataset
+        self.output_dir = output_dir
+        
+    def run(self):
+        self.theme_dataset[self.theme] = self.qg_pipe.get_theme_dataset(self.para_df,self.qa_df,self.theme).drop_duplicates()
+        self.qg_pipe.save_to_json(self.theme,self.theme_dataset[self.theme], self.output_dir)
+        #print(self.theme)
+                
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -319,11 +348,20 @@ def main():
     parser.add_argument("--use_cuda", action="store_false")
     parser.add_argument("--ner_limit", type=int, default=0)
     parser.add_argument("--save_csv", action="store_false")
+    parser.add_argument("--use_qa_data", type=str, default="sample_question_answers.csv")
     args = parser.parse_args()
     
-    df = pd.read_csv(args.input_dir)
+    para_df = pd.read_csv(args.input_dir)#id paragraph
+    qa_df = pd.read_csv(args.use_qa_data)#question theme paragraph_id answer
+    id2para = dict(zip(para_df["id"],para_df["paragraph"]))
+    qa_df["paragraph"] = qa_df["paragraph_id"].map(id2para)
+    
     qg_model = AutoModelForSeq2SeqLM.from_pretrained("valhalla/t5-small-qg-hl")
     qg_tokenizer = AutoTokenizer.from_pretrained("valhalla/t5-small-qg-hl")
+    
+    ## question theme paragraph_id answer
+    
+    
     qg_pipe = CustomPipeline(model = qg_model, 
                              tokenizer=qg_tokenizer, 
                              use_cuda=args.use_cuda,
@@ -331,22 +369,48 @@ def main():
                              ner_limit = args.ner_limit,
                              
                             unans_filter="model")
+    ##
     
-    all_themes = df["theme"].unique()
+    all_themes = para_df["theme"].unique()
     theme_dataset = {}
     total_start_time = time.time()
-    for theme in all_themes:
-        start_time = time.time()
-        theme_dataset[theme] = qg_pipe.get_theme_dataset(df,theme).drop_duplicates()
-        qg_pipe.save_to_json(theme,theme_dataset[theme], args.output_dir)
-        end_time = time.time()
-        print("time_taken:", end_time - start_time)
+    
+    threadLock = threading.Lock()
+    import math
+    n = 10
+    for k in range(0, math.ceil(len(all_themes)/float(n))):
+        i = n*k
+        themes = []
+        finetuned_model_paths = []
+        threads = []
+        # print("Batch_1")
+        for j, theme in enumerate(all_themes[i:min(len(all_themes),i+n)]):
+            thread = Worker(j, theme, qg_pipe, para_df, qa_df, theme_dataset, args.output_dir)
+            thread.start()
+            threads.append(thread)
+        main_thread = threading.currentThread()
+        threadLock.acquire()
+        for t in threads:
+            print(t)
+            if t is not main_thread:
+                t.join()
+        threadLock.release()
+      
+    
+    
+    # for theme in all_themes:
+    #     start_time = time.time()
+    #     theme_dataset[theme] = qg_pipe.get_theme_dataset(para_df,qa_df,theme).drop_duplicates()
+    #     qg_pipe.save_to_json(theme,theme_dataset[theme], args.output_dir)
+    #     end_time = time.time()
+    #     print("time_taken:", end_time - start_time)
     total_end_time = time.time()
     print("total time taken:", total_end_time - total_start_time)
-    out = pd.concat(list(theme_dataset.values()))
-    if args.save_csv:
-      out.to_csv(args.output_dir + "synthetic_data.csv")
+    # out = pd.concat(list(theme_dataset.values()))
+    # if args.save_csv:
+    #   out.to_csv(args.output_dir + "synthetic_data.csv")
     
 
 if __name__ == "__main__":
     main()
+    

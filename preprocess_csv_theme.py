@@ -56,5 +56,6 @@ def main(args):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_csv', type=str, default='train_data')
+    parser.add_argument('--data-csv', type=str, default='train_data')
     args = parser.parse_args()
+    main(args)

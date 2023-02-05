@@ -127,7 +127,7 @@ class Reader:
     
     else:
       # Load a model from transformers and export it to ONNX
-      ort_model = ORTModelForQuestionAnswering.from_pretrained(self.model_name)
+      ort_model = ORTModelForQuestionAnswering.from_pretrained(self.model_name, from_transformers=True)
       tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
     # Save the onnx model and tokenizer
     ort_model.save_pretrained(save_directory)

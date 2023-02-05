@@ -13,7 +13,7 @@ import faiss
 import numpy as np
 from transformers import pipeline
 from optimum.onnxruntime import ORTModelForQuestionAnswering
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 from optimum.onnxruntime.configuration import AutoQuantizationConfig
 from optimum.onnxruntime import ORTQuantizer
 from sentence_transformers import SentenceTransformer
@@ -102,10 +102,9 @@ class Reader:
     self.pipe = None
 
   def __call__(self, stride = 128, n_best_size=20, file_name = "model_quantized.onnx", save_directory= "tmp/onnx/"):
-    
-    self.quantize_model()
+   
 
-    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name) #from from_transformers=True
+    reader_model = AutoModelForQuestionAnswering.from_pretrained(self.model_name) #from from_transformers=True
     tokenizer = AutoTokenizer.from_pretrained(save_directory)
 
     self.pipe = pipeline("question-answering",

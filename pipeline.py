@@ -88,6 +88,7 @@ class Reader:
                 theme_dict = None,
                 use_cuda = False,):
     self.theme = theme
+    self.tokenizer_path = reader_model
     if self.theme is None:
       self.model_name = reader_model
     else:
@@ -104,7 +105,7 @@ class Reader:
     
     self.quantize_model()
 
-    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name, from_transformers=True) #from from_transformers=True
+    reader_model = ORTModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name) #from from_transformers=True
     tokenizer = AutoTokenizer.from_pretrained(save_directory)
 
     self.pipe = pipeline("question-answering",
@@ -118,10 +119,16 @@ class Reader:
     return self.pipe
   
   def quantize_model(self, save_directory= "tmp/onnx/"):
-
-    # Load a model from transformers and export it to ONNX
-    ort_model = ORTModelForQuestionAnswering.from_pretrained(self.model_name, from_transformers=True)
-    tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+    
+    if self.theme is None:
+      # Load a model from transformers and export it to ONNX
+      ort_model = ORTModelForQuestionAnswering.from_pretrained(self.model_name, from_transformers=True)
+      tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
+    
+    else:
+      # Load a model from transformers and export it to ONNX
+      ort_model = ORTModelForQuestionAnswering.from_pretrained(self.model_name)
+      tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
     # Save the onnx model and tokenizer
     ort_model.save_pretrained(save_directory)
     tokenizer.save_pretrained(save_directory)

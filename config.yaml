@@ -1,0 +1,9 @@
+dataset_path: []
+dataset_dir: 'para_output'
+model_path: 'save/meta_baseline-11/checkpoint'
+tokenizer_path: 'mrm8488/bert-mini-5-finetuned-squadv2'
+hugging_face: 1
+still_train: 1
+num_tasks: 10
+epochs: 10
+batch_size: 52

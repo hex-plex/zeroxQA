@@ -7,6 +7,7 @@ import csv
 import util
 from transformers import DistilBertTokenizerFast
 from transformers import DistilBertForQuestionAnswering
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 from transformers import AdamW
 from tensorboardX import SummaryWriter
 
@@ -15,7 +16,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 from args import get_train_test_args
 from pathlib import Path
-
+import copy
 from tqdm import tqdm
 
 def prepare_eval_data(dataset_dict, tokenizer):
@@ -147,15 +148,17 @@ def get_dataset(args, datasets, data_dir, tokenizer, split_name):
         dataset_name += f'_{dataset}'
         dataset_dict_curr = util.read_squad(f'{data_dir}/{dataset}')
         dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
+    if split_name=="val":
+        dataset_name = dataset_name[:min(len(dataset_name), 52)]
     data_encodings = read_and_process(args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
-    return util.QADataset(data_encodings, train=(split_name=='train')), dataset_dict
+    return util.QADataset(data_encodings, train=(split_name=='train')), dataset_dict  
 
 class MetaLearningTrainer():
     def __init__(self, base_model: torch.nn.Module, train_dir, val_dir, tokenizer, args, log):
         # meta-learning parameters
         self.meta_epochs = args.meta_epochs
-        self.num_tasks = 3
-        self.k_gradient_steps = 3
+        self.num_tasks = 359
+        self.k_gradient_steps = 12
         self.meta_lr = args.meta_lr
         self.global_idx = 0
         self.path = os.path.join(args.save_dir, 'checkpoint')
@@ -163,9 +166,17 @@ class MetaLearningTrainer():
         # base model parameters
         self.args = args
         self.log = log
-        self.base_models = [DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased").to(args.device)]\
+        
+        
+        if base_model is None:
+            self.base_models = [DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased").to(args.device)]\
                           * self.num_tasks
-        self.meta_model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased").to(args.device)
+            self.meta_model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased").to(args.device)
+        else:
+            self.base_models = [copy.deepcopy(base_model).to(args.device)]\
+                          * self.num_tasks
+            self.meta_model = copy.deepcopy(base_model).to(args.device)
+
         self.train_datasets = []
         self.train_dataset_probabilities = []
         self.train_dicts = []
@@ -261,7 +272,6 @@ class MetaLearningTrainer():
         device = self.args.device
         optim = AdamW(model.parameters(), lr=self.args.lr)
         best_scores = {'F1': -1.0, 'EM': -1.0}
-
         with torch.enable_grad(), tqdm(total=self.k_gradient_steps) as progress_bar:
             for i in range(self.k_gradient_steps):
                 if self.data_loader_cursors[selected_index] + 1 >= len(self.data_loaders[selected_index].dataset):
@@ -340,9 +350,13 @@ def main():
 
     util.set_seed(args.seed)
     checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
-    model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased")
-    #model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+    #model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased")
+    # model = DistilBertForQuestionAnswering.from_pretrained("save/meta_baseline-51/checkpoint")
+    # tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+    
+    model = AutoModelForQuestionAnswering.from_pretrained("mrm8488/bert-tiny-5-finetuned-squadv2")
+    tokenizer = AutoTokenizer.from_pretrained('mrm8488/bert-tiny-5-finetuned-squadv2')
+    
 
     if args.do_train:
         if not os.path.exists(args.save_dir):

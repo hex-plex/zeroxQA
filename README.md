@@ -24,7 +24,7 @@ $ python synthetic_gen.py --input_dir=datasets/train_data.csv --ner_limit=2 --us
 ```
 This preprocesses the whole dataset into different shards of datasets for different domains. Then synthetically generates question and answer pairs for unannoted paragraphs for improving indomain queries.
 
-### Training
+<h3> Training </h3>
 
 ```bash
 $ python meta_train.py --run-name meta_baseline --do-train --lr=1e-4 --meta-lr=5e-3 --meta-epochs=10000

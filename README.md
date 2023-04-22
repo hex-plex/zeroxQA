@@ -58,7 +58,7 @@ The Improvement for quantizing the model can be observed with the the distributi
 ![](media/mini55.png)
 
 ## Contributors
-[Somnath](https://github.com/hex-plex)
-[Eshaan Agarwal](https://github.com/eshaanagarwal)
-Utkarsh Pandey
-Vaibhav Tripathi
+- [Somnath](https://github.com/hex-plex)
+- [Eshaan Agarwal](https://github.com/eshaanagarwal)
+- [Utkarsh Pandey](https://github.com/Kratos-is-here)
+- [Vaibhav Tripathi](https://github.com/oyetripathi)

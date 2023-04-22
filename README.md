@@ -56,3 +56,9 @@ The Improvement for quantizing the model can be observed with the the distributi
 
 ![](media/mini5.png)
 ![](media/mini55.png)
+
+## Contributors
+[Somnath](https://github.com/hex-plex)
+[Eshaan Agarwal](https://github.com/eshaanagarwal)
+Utkarsh Pandey
+Vaibhav Tripathi
